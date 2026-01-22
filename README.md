@@ -1,7 +1,3 @@
-<div align="center">
-  <img src="cad_render.png" width="300" />
-  <br>
-</div>
 # Pathfinder: Space Agriculture Technology Demonstrator
 ### Florida Atlantic University - Senior Design 2026
 
