@@ -1,93 +1,88 @@
-"""
-hardware_drivers.py
-This is the "Hardware Abstraction Layer" (HAL).
-"""
-import random
-import global_config
+import board
+import busio
+import adafruit_scd4x
+import adafruit_veml7700
+from adafruit_ads1x15.ads1115 import ADS1115
+from adafruit_ads1x15.analog_in import AnalogIn
+from adafruit_bme280 import basic as adafruit_bme280
 
-# --- INTERNAL SIMULATION STATE ---
-# These variables simulate the physical reality of the satellite
-_heater_states = {
-    global_config.AIR_HEATER: "OFF", 
-    global_config.WATER_HEATER: "OFF"
-}
-_mock_water_temp = 12.0  # Start cold
+class SensorBay:
+    def __init__(self):
+        self.i2c = board.I2C()
+        self.sensors = {
+            "SCD40": None,
+            "BME280": None,
+            "LUX": None,
+            "ADC": None
+        }
+        self.init_hardware()
 
-# --- Self-Test Functions ---
-def check_all_sensors():
-    print("[Mock HW] Checking all sensors... OK.")
-    return True
+    def init_hardware(self):
+        # 1. SCD40 (CO2)
+        try:
+            self.sensors["SCD40"] = adafruit_scd4x.SCD4X(self.i2c)
+            self.sensors["SCD40"].start_periodic_measurement()
+            print("[HARDWARE] SCD40: ONLINE")
+        except:
+            print("[HARDWARE] SCD40: OFFLINE")
 
-def check_memory():
-    print("[Mock HW] Checking memory... OK.")
-    return True
+        # 2. BME280 (Atmosphere)
+        try:
+            try:
+                self.sensors["BME280"] = adafruit_bme280.Adafruit_BME280_I2C(self.i2c, address=0x77)
+            except:
+                self.sensors["BME280"] = adafruit_bme280.Adafruit_BME280_I2C(self.i2c, address=0x76)
+            print("[HARDWARE] BME280: ONLINE")
+        except:
+            print("[HARDWARE] BME280: OFFLINE")
 
-# --- Power/System Functions ---
-def power_on_comms_receiver():
-    print("[Mock HW] Comms receiver powered ON.")
+        # 3. VEML7700 (Lux)
+        try:
+            self.sensors["LUX"] = adafruit_veml7700.VEML7700(self.i2c)
+            print("[HARDWARE] VEML7700: ONLINE")
+        except:
+            print("[HARDWARE] VEML7700: OFFLINE (Check wiring)")
 
-def power_on_adcs_systems():
-    print("[Mock HW] ADCS systems powered ON.")
+        # 4. ADS1115 (Thermistor)
+        try:
+            self.ads = ADS1115(self.i2c)
+            self.sensors["ADC"] = AnalogIn(self.ads, 0) # Channel 0
+            print("[HARDWARE] ADS1115: ONLINE")
+        except:
+            print("[HARDWARE] ADS1115: OFFLINE")
 
-def power_on_comms_transmitter():
-    print("[Mock HW] Comms transmitter (high power) powered ON.")
-    
-def power_off_comms_transmitter():
-    print("[Mock HW] Comms transmitter powered OFF.")
+    def read_all(self):
+        """Returns a dictionary of all latest sensor readings"""
+        data = {
+            "co2": 0, "temp_scd": 0, "humidity": 0,
+            "pressure": 0, "temp_bme": 0,
+            "lux": 0,
+            "thermistor_volts": 0
+        }
 
-def power_off_all_non_essential():
-    print("[Mock HW] CRITICAL: Powering off all non-essential systems.")
-    set_heater(global_config.AIR_HEATER, "OFF")
-    set_heater(global_config.WATER_HEATER, "OFF")
-    set_leds("OFF")
+        # SCD40
+        if self.sensors["SCD40"] and self.sensors["SCD40"].data_ready:
+            data["co2"] = self.sensors["SCD40"].CO2
+            data["temp_scd"] = self.sensors["SCD40"].temperature
+            data["humidity"] = self.sensors["SCD40"].relative_humidity
 
-# --- Sensor Read Functions ---
-def read_voltage_sensor():
-    return 3.8 + random.uniform(-0.1, 0.1) 
+        # BME280
+        if self.sensors["BME280"]:
+            try:
+                data["pressure"] = self.sensors["BME280"].pressure
+                data["temp_bme"] = self.sensors["BME280"].temperature
+            except: pass
 
-def read_temp_sensor(sensor_id):
-    # Simulate Real Physics!
-    
-    # 1. Handle Water Temp (Dynamic)
-    if sensor_id == global_config.WATER_TEMP_SENSOR:
-        global _mock_water_temp
-        
-        # If heater is ON, temperature rises
-        if _heater_states[global_config.WATER_HEATER] == "ON":
-            _mock_water_temp += 0.5  # Heat up by 0.5 deg per second
+        # Lux
+        if self.sensors["LUX"]:
+            try:
+                data["lux"] = self.sensors["LUX"].lux
+            except: pass
+
+        # ADC
+        if self.sensors["ADC"]:
+            try:
+                data["thermistor_volts"] = self.sensors["ADC"].voltage
+            except: pass
             
-        # If heater is OFF, it slowly cools down (simplified)
-        else:
-            if _mock_water_temp > 12.0:
-                _mock_water_temp -= 0.1
-                
-        return _mock_water_temp
-
-    # 2. Handle Air Temp (Random fluctuation)
-    else:
-        return 22.0 + random.uniform(-0.5, 0.5)
-
-# --- Actuator Control Functions ---
-def set_heater(heater_id, status):
-    # Update our internal state so the sensor knows to heat up
-    global _heater_states
-    _heater_states[heater_id] = status
-    print(f"[Mock HW] Setting heater {heater_id} to {status}")
-
-def set_leds(status):
-    print(f"[Mock HW] Setting LEDs to {status}")
-
-def run_pump(duration_sec):
-    print(f"[Mock HW] Running pump for {duration_sec} seconds...")
-    # We do NOT sleep here, or the GUI would freeze!
-    
-def capture_image():
-    print(f"[Mock HW] Triggering camera. Saving image to disk.")
-    
-# --- Comms Functions ---
-def check_for_gnd_command():
-    # Force the start command for testing
-    return "START_EXPERIMENT" 
-
-def downlink_data_buffer():
-    print(f"[Mock HW] Beginning data downlink... [||||||||||] Complete.")
+        return data
