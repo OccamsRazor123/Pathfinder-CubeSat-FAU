@@ -4,22 +4,24 @@ import time
 
 class ActuatorBay:
     def __init__(self):
-        # Configuration
-        self.PIN_HEATER = 22      # GPIO 22 (Pin 15)
-        self.PIN_PUMP_PWM = 18    # GPIO 18 (Pin 12) - Speed
-        self.PIN_PUMP_EN = 24     # GPIO 24 (Pin 18) - Start/Stop
-        self.PIN_PUMP_DIR = 23    # GPIO 23 (Pin 16) - Direction
+        # --- CONFIGURATION ---
+        self.PIN_HEATER_1 = 22    # GPIO 22 (Pin 15)
+        self.PIN_HEATER_2 = 25    # GPIO 25 (Pin 22) - NEW
+        self.PIN_PUMP_PWM = 18    # GPIO 18 (Pin 12)
+        self.PIN_PUMP_EN = 24     # GPIO 24 (Pin 18)
+        self.PIN_PUMP_DIR = 23    # GPIO 23 (Pin 16)
         
         GPIO.setmode(GPIO.BCM)
         GPIO.setwarnings(False)
         
         # Setup Pins
-        GPIO.setup(self.PIN_HEATER, GPIO.OUT)
+        GPIO.setup(self.PIN_HEATER_1, GPIO.OUT)
+        GPIO.setup(self.PIN_HEATER_2, GPIO.OUT)
         GPIO.setup(self.PIN_PUMP_EN, GPIO.OUT)
         GPIO.setup(self.PIN_PUMP_DIR, GPIO.OUT)
         GPIO.setup(self.PIN_PUMP_PWM, GPIO.OUT)
         
-        # Initialize Pump Speed (PWM) at 0%
+        # Initialize Pump
         self.pump_pwm = GPIO.PWM(self.PIN_PUMP_PWM, 1000) 
         self.pump_pwm.start(0)
         
@@ -28,9 +30,11 @@ class ActuatorBay:
         self.pump_state = False
 
     def set_heater(self, state):
-        """Turn Heater ON (True) or OFF (False)"""
+        """Turn BOTH Heaters ON (True) or OFF (False)"""
         self.heater_state = state
-        GPIO.output(self.PIN_HEATER, GPIO.HIGH if state else GPIO.LOW)
+        # We fire both to ensure the payload heats evenly
+        GPIO.output(self.PIN_HEATER_1, GPIO.HIGH if state else GPIO.LOW)
+        GPIO.output(self.PIN_HEATER_2, GPIO.HIGH if state else GPIO.LOW)
 
     def run_pump(self, speed=50, clockwise=True):
         """Runs the pump continuously"""
@@ -46,7 +50,6 @@ class ActuatorBay:
         self.pump_pwm.ChangeDutyCycle(0)
 
     def get_status(self):
-        """Returns the current status for logging"""
         return {
             "Heater_State": "ON" if self.heater_state else "OFF",
             "Pump_State": "ON" if self.pump_state else "OFF"
@@ -54,4 +57,5 @@ class ActuatorBay:
 
     def cleanup(self):
         self.stop_pump()
-        GPIO.output(self.PIN_HEATER, GPIO.LOW)
+        self.set_heater(False)
+        GPIO.cleanup()
