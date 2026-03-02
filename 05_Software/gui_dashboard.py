@@ -1,239 +1,159 @@
-"""
-gui_dashboard.py
-This file creates a simple Tkinter GUI to monitor the
-state of the flight software simulation (main.py).
-
-It runs the simulation in a separate thread and displays
-the live data it receives on a "red/yellow/green" dashboard.
-"""
-
 import tkinter as tk
-from tkinter import font
+import customtkinter as ctk
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
+import collections
+from datetime import datetime
 import threading
-import queue
+import random
 import time
 
-# Import the simulation loop and config from your existing files
-import main
-import global_config
+# --- THEME SETUP ---
+ctk.set_appearance_mode("Dark")
+ctk.set_default_color_theme("blue")
 
-class DashboardApp:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Pathfinder Flight Software - SITL Dashboard")
-        self.root.geometry("600x450")
+class ProfessionalOBCDashboard(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+        self.title("PATHFINDER GROUND SEGMENT | OBC TERMINAL")
+        self.geometry("1280x800")
         
-        # Set up a professional-looking theme
-        self.root.configure(bg="#2E2E2E")
-        self.primary_font = font.Font(family="Helvetica", size=12)
-        self.title_font = font.Font(family="Helvetica", size=16, weight="bold")
-        self.label_color = "#FFFFFF"
-        self.bg_color = "#2E2E2E"
-        self.frame_color = "#3E3E3E"
+        # Mission Timing & Data Buffering
+        self.start_time = datetime.now()
+        self.temp_history = collections.deque([22.0]*50, maxlen=50)
+        self.time_steps = list(range(50))
 
-        # This queue is used to pass the 'system_state' dict
-        # from the simulation thread to this GUI thread.
-        self.data_queue = queue.Queue()
-        
-        # This event is used to tell the simulation thread to stop
-        self.stop_event = threading.Event()
+        self.grid_columnconfigure(0, weight=0) 
+        self.grid_columnconfigure(1, weight=3) 
+        self.grid_rowconfigure(0, weight=1)
 
-        self.create_widgets()
+        # --- SIDEBAR ---
+        self.sidebar = ctk.CTkFrame(self, width=200, corner_radius=0)
+        self.sidebar.grid(row=0, column=0, rowspan=4, sticky="nsew")
+        ctk.CTkLabel(self.sidebar, text="COMMAND", font=("Arial", 20, "bold")).pack(pady=20)
+        ctk.CTkButton(self.sidebar, text="EXPORT LOGS", fg_color="#2ecc71").pack(pady=10, padx=20)
         
-        # Start the simulation in a new thread
-        self.start_simulation()
+        # --- HEADER / MISSION ELAPSED TIME ---
+        self.header = ctk.CTkFrame(self, height=50, fg_color="#1e1e1e")
+        self.header.grid(row=0, column=1, sticky="new", padx=20, pady=(20, 0))
         
-        # Start the GUI's own update loop
-        self.update_gui()
+        # Updated Label per your request
+        self.met_lbl = ctk.CTkLabel(self.header, text="Mission Elapsed Time (MET): 00:00:00", 
+                                    font=("Consolas", 18, "bold"), text_color="cyan")
+        self.met_lbl.pack(side="left", padx=20)
         
-        # Set the protocol for closing the window
-        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        # --- MAIN CONTAINER ---
+        self.main_container = ctk.CTkFrame(self, fg_color="transparent")
+        self.main_container.grid(row=0, column=1, padx=20, pady=(80, 20), sticky="nsew")
+        self.main_container.grid_columnconfigure((0, 1), weight=1)
+        self.main_container.grid_rowconfigure((0, 1), weight=1)
 
-    def create_widgets(self):
-        """Builds the main GUI layout."""
-        
-        # --- Main Title ---
-        title_label = tk.Label(self.root, text="Pathfinder Mission Dashboard", font=self.title_font, bg=self.bg_color, fg=self.label_color, pady=10)
-        title_label.pack()
+        # PANEL 1: ENVIRONMENTAL DATA
+        self.env_panel = self.create_panel(self.main_container, "ENVIRONMENTAL DATA", 0, 0)
+        self.temp_lbl, self.temp_bar = self.create_parameter(self.env_panel, "AIR TEMP", "0.0°C", 40, "cyan")
+        self.co2_lbl, self.co2_bar = self.create_parameter(self.env_panel, "CO2 CONC", "0 ppm", 2000, "#2ecc71")
+        self.lux_lbl, self.lux_bar = self.create_parameter(self.env_panel, "LUMINOSITY", "0 lux", 1000, "#f1c40f")
+        self.pres_lbl, self.pres_bar = self.create_parameter(self.env_panel, "PRESSURE", "0 hPa", 1100, "#9b59b6")
 
-        # --- System State Frame ---
-        state_frame = tk.Frame(self.root, bg=self.frame_color, bd=2, relief=tk.GROOVE, padx=10, pady=10)
-        state_frame.pack(fill="x", padx=10, pady=5)
-        
-        self.state_vars = {
-            "Current Mode": tk.StringVar(value="--"),
-            "Battery Voltage": tk.StringVar(value="-- V"),
-            "Pi Temperature": tk.StringVar(value="-- °C"),
-            "Air Temperature": tk.StringVar(value="-- °C"),
-            "Water Temperature": tk.StringVar(value="-- °C"),
-            "Air Heater": tk.StringVar(value="--"),
-            "LEDs": tk.StringVar(value="--"),
-        }
-        
-        # Create labels in a grid
-        tk.Label(state_frame, text="Current Mode:", font=self.primary_font, bg=self.frame_color, fg=self.label_color).grid(row=0, column=0, sticky="w", padx=5, pady=2)
-        tk.Label(state_frame, textvariable=self.state_vars["Current Mode"], font=self.primary_font, bg=self.frame_color, fg="#00FF00").grid(row=0, column=1, sticky="w", padx=5, pady=2)
-        
-        tk.Label(state_frame, text="Battery Voltage:", font=self.primary_font, bg=self.frame_color, fg=self.label_color).grid(row=1, column=0, sticky="w", padx=5, pady=2)
-        tk.Label(state_frame, textvariable=self.state_vars["Battery Voltage"], font=self.primary_font, bg=self.frame_color, fg=self.label_color).grid(row=1, column=1, sticky="w", padx=5, pady=2)
-        
-        tk.Label(state_frame, text="Pi Temperature:", font=self.primary_font, bg=self.frame_color, fg=self.label_color).grid(row=2, column=0, sticky="w", padx=5, pady=2)
-        tk.Label(state_frame, textvariable=self.state_vars["Pi Temperature"], font=self.primary_font, bg=self.frame_color, fg=self.label_color).grid(row=2, column=1, sticky="w", padx=5, pady=2)
-        
-        tk.Label(state_frame, text="Air Temperature:", font=self.primary_font, bg=self.frame_color, fg=self.label_color).grid(row=3, column=0, sticky="w", padx=5, pady=2)
-        tk.Label(state_frame, textvariable=self.state_vars["Air Temperature"], font=self.primary_font, bg=self.frame_color, fg=self.label_color).grid(row=3, column=1, sticky="w", padx=5, pady=2)
-        
-        tk.Label(state_frame, text="Water Temperature:", font=self.primary_font, bg=self.frame_color, fg=self.label_color).grid(row=4, column=0, sticky="w", padx=5, pady=2)
-        tk.Label(state_frame, textvariable=self.state_vars["Water Temperature"], font=self.primary_font, bg=self.frame_color, fg=self.label_color).grid(row=4, column=1, sticky="w", padx=5, pady=2)
+        # PANEL 2: SUBSYSTEM HEALTH
+        self.pwr_panel = self.create_panel(self.main_container, "SUBSYSTEM HEALTH", 0, 1)
+        self.heater_led = self.create_status_light(self.pwr_panel, "THERMAL STRIPS", "#f1c40f")
+        self.pump_led = self.create_status_light(self.pwr_panel, "FLUID PUMP", "#3498db")
+        self.fan_led = self.create_status_light(self.pwr_panel, "COOLING FANS", "#1abc9c")
+        self.led_status = self.create_status_light(self.pwr_panel, "SYSTEM LEDs", "#ecf0f1")
 
-        tk.Label(state_frame, text="Air Heater:", font=self.primary_font, bg=self.frame_color, fg=self.label_color).grid(row=5, column=0, sticky="w", padx=5, pady=2)
-        tk.Label(state_frame, textvariable=self.state_vars["Air Heater"], font=self.primary_font, bg=self.frame_color, fg=self.label_color).grid(row=5, column=1, sticky="w", padx=5, pady=2)
+        # PANEL 3: GRAPHING
+        self.graph_panel = self.create_panel(self.main_container, "MISSION TIMELINE (TEMP)", 1, 0)
+        self.fig = Figure(figsize=(5, 3), dpi=100, facecolor='#2b2b2b')
+        self.ax = self.fig.add_subplot(111)
+        self.ax.set_facecolor('#1e1e1e')
+        self.ax.tick_params(colors='white', labelsize=8)
+        self.ax.set_xlabel("Time (Seconds)", color='white', fontsize=9)
+        self.ax.set_ylabel("Temp (°C)", color='white', fontsize=9)
+        self.line, = self.ax.plot(self.time_steps, self.temp_history, color='cyan', linewidth=2)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.graph_panel)
+        self.canvas.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)
 
-        tk.Label(state_frame, text="LEDs:", font=self.primary_font, bg=self.frame_color, fg=self.label_color).grid(row=6, column=0, sticky="w", padx=5, pady=2)
-        tk.Label(state_frame, textvariable=self.state_vars["LEDs"], font=self.primary_font, bg=self.frame_color, fg=self.label_color).grid(row=6, column=1, sticky="w", padx=5, pady=2)
+        # PANEL 4: TERMINAL
+        self.term_panel = self.create_panel(self.main_container, "UPLINK/DOWNLINK RAW", 1, 1)
+        self.terminal = tk.Text(self.term_panel, bg="#1e1e1e", fg="#00ff00", font=("Consolas", 10), borderwidth=0)
+        self.terminal.pack(fill="both", expand=True, padx=10, pady=10)
 
-        # --- Status Light Frame ---
-        status_frame = tk.Frame(self.root, bg=self.frame_color, bd=2, relief=tk.GROOVE, padx=10, pady=10)
-        status_frame.pack(fill="x", padx=10, pady=10)
-        
-        tk.Label(status_frame, text="System Health Status", font=self.title_font, bg=self.frame_color, fg=self.label_color).pack()
-        
-        self.status_lights = {}
-        light_frame = tk.Frame(status_frame, bg=self.frame_color)
-        light_frame.pack(pady=10)
+        threading.Thread(target=self.mission_simulator, daemon=True).start()
 
-        for i, (name, text) in enumerate([("voltage", "Battery OK"), ("pi_temp", "Pi Temp OK"), ("air_temp", "Air Temp OK"), ("water_temp", "Water Temp OK")]):
-            canvas = tk.Canvas(light_frame, width=20, height=20, bg=self.frame_color, bd=0, highlightthickness=0)
-            # Draw a grey circle by default
-            canvas.create_oval(2, 2, 18, 18, fill="grey", outline="grey", tags="status_light")
-            canvas.grid(row=0, column=i*2, padx=(10, 2))
+    def create_panel(self, master, title, row, col):
+        frame = ctk.CTkFrame(master, border_width=1, border_color="#444")
+        frame.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
+        ctk.CTkLabel(frame, text=title, font=("Arial", 12, "bold"), text_color="gray").pack(pady=5)
+        return frame
+
+    def create_parameter(self, master, name, val_text, max_val, color):
+        container = ctk.CTkFrame(master, fg_color="transparent")
+        container.pack(fill="x", padx=15, pady=2)
+        ctk.CTkLabel(container, text=name, font=("Arial", 10)).pack(side="left")
+        val_lbl = ctk.CTkLabel(container, text=val_text, font=("Arial", 12, "bold"), text_color=color)
+        val_lbl.pack(side="right")
+        bar = ctk.CTkProgressBar(master, height=6, progress_color=color)
+        bar.pack(fill="x", padx=15, pady=(0, 8))
+        bar.set(0.0)
+        return val_lbl, (bar, max_val)
+
+    def create_status_light(self, master, name, on_color):
+        container = ctk.CTkFrame(master, fg_color="transparent")
+        container.pack(fill="x", padx=15, pady=4)
+        light = ctk.CTkLabel(container, text="●", font=("Arial", 24), text_color="#333")
+        light.pack(side="left")
+        ctk.CTkLabel(container, text=name, font=("Arial", 11)).pack(side="left", padx=10)
+        return {"light": light, "on_color": on_color}
+
+    def mission_simulator(self):
+        c_temp, c_co2, c_lux, c_pres = 22.0, 450, 800, 1013.25
+        while True:
+            c_temp += random.uniform(-0.3, 0.3)
+            c_co2 += random.randint(-2, 5)
+            c_lux += random.randint(-10, 10)
+            c_pres += random.uniform(-0.1, 0.1)
             
-            label = tk.Label(light_frame, text=text, font=self.primary_font, bg=self.frame_color, fg=self.label_color)
-            label.grid(row=0, column=i*2+1, padx=(0, 10))
-            
-            # Store the canvas so we can change its color
-            self.status_lights[name] = canvas
+            sim_data = {
+                "temp_scd": c_temp, "co2": c_co2, "lux": c_lux, "pressure": c_pres,
+                "Heater_State": "ON" if c_temp < 20.0 else "OFF",
+                "Pump_State": "ON" if (int(time.time()) % 15 < 3) else "OFF",
+                "Fan_State": "ON" if c_temp > 24.0 else "OFF",
+                "LED_State": "ON" if c_lux < 500 else "OFF"
+            }
+            self.after(0, self.update_display, sim_data)
+            time.sleep(1)
 
-    def start_simulation(self):
-        """Starts the main.run_simulation_loop in a new daemon thread."""
-        print("[GUI] Starting simulation thread...")
-        self.sim_thread = threading.Thread(
-            target=main.run_simulation_loop,
-            args=(self.data_queue, self.stop_event),
-            daemon=True  # Daemon threads exit when the main program exits
-        )
-        self.sim_thread.start()
-
-    def update_gui(self):
-        """Periodically checks the queue for new data and updates the GUI."""
-        try:
-            # Check for new data from the simulation thread
-            # Use a loop to clear the queue and get the *latest* state
-            while not self.data_queue.empty():
-                system_state = self.data_queue.get_nowait()
-                self.process_system_state(system_state)
-
-        except queue.Empty:
-            # No new data, that's fine
-            pass
+    def update_display(self, data):
+        elapsed = datetime.now() - self.start_time
+        self.met_lbl.configure(text=f"Mission Elapsed Time (MET): {str(elapsed).split('.')[0]}")
         
-        # Schedule this function to run again after 100ms
-        self.root.after(100, self.update_gui)
+        updates = [
+            (self.temp_lbl, self.temp_bar, data.get('temp_scd', 0), "°C"),
+            (self.co2_lbl, self.co2_bar, data.get('co2', 0), " ppm"),
+            (self.lux_lbl, self.lux_bar, data.get('lux', 0), " lux"),
+            (self.pres_lbl, self.pres_bar, data.get('pressure', 0), " hPa")
+        ]
+        for lbl, (bar, m), val, unit in updates:
+            lbl.configure(text=f"{val:.1f}{unit}" if isinstance(val, float) else f"{val}{unit}")
+            bar.set(min(max(val / m, 0), 1.0))
 
-    def process_system_state(self, state):
-        """Updates all GUI elements with the new system_state data."""
+        leds = [
+            (self.heater_led, data.get("Heater_State")),
+            (self.pump_led, data.get("Pump_State")),
+            (self.fan_led, data.get("Fan_State")),
+            (self.led_status, data.get("LED_State"))
+        ]
+        for led_obj, state in leds:
+            led_obj["light"].configure(text_color=led_obj["on_color"] if state == "ON" else "#333")
         
-        # --- Update Labels ---
-        self.state_vars["Current Mode"].set(state["current_mode"])
-        self.state_vars["Battery Voltage"].set(f"{state['battery_voltage']:.2f} V")
-        self.state_vars["Pi Temperature"].set(f"{state['pi_temp']:.1f} °C")
-        self.state_vars["Air Temperature"].set(f"{state['payload_temps']['air']:.1f} °C")
-        self.state_vars["Water Temperature"].set(f"{state['payload_temps']['water']:.1f} °C")
+        self.temp_history.append(data.get('temp_scd', 0))
+        self.line.set_ydata(self.temp_history)
+        self.ax.relim(); self.ax.autoscale_view(); self.canvas.draw()
         
-        # Check heater status (this is a bit of a hack, but works for mock)
-        # In a real system, you'd have a state variable for this
-        if state['payload_temps']['air'] < global_config.IDEAL_PLANT_TEMP_MIN:
-             self.state_vars["Air Heater"].set("ON")
-        elif state['payload_temps']['air'] > global_config.IDEAL_PLANT_TEMP_MAX:
-             self.state_vars["Air Heater"].set("OFF")
-        
-        # Check LED status
-        if state["current_mode"] == "EXPERIMENT_MODE":
-             # This logic is from conops_modes.py
-             if state["experiment_start_time"]:
-                time_since_start = time.time() - state["experiment_start_time"]
-                day_cycle_time = time_since_start % (24 * 3600)
-                if day_cycle_time < (16 * 3600):
-                    self.state_vars["LEDs"].set("ON")
-                else:
-                    self.state_vars["LEDs"].set("OFF")
-             else:
-                self.state_vars["LEDs"].set("OFF") # Should not happen
-        else:
-            self.state_vars["LEDs"].set("OFF")
-
-
-        # --- Update Status Lights ---
-        
-        # Voltage Status
-        v = state['battery_voltage']
-        if v < global_config.LAST_RESORT_VOLTAGE:
-            self.set_status_light("voltage", "red")
-        elif v < global_config.SAFE_MODE_VOLTAGE:
-            self.set_status_light("voltage", "yellow")
-        else:
-            self.set_status_light("voltage", "green")
-
-        # Pi Temp Status
-        pt = state['pi_temp']
-        if pt > global_config.MAX_PI_TEMP:
-            self.set_status_light("pi_temp", "red")
-        elif pt > global_config.MAX_PI_TEMP - 10: # 10C warning margin
-             self.set_status_light("pi_temp", "yellow")
-        else:
-            self.set_status_light("pi_temp", "green")
-            
-        # Air Temp Status
-        at = state['payload_temps']['air']
-        if (at < global_config.MIN_PLANT_TEMP or 
-            at > global_config.MAX_PLANT_TEMP):
-            self.set_status_light("air_temp", "red") # Survival limit breach
-        elif (at < global_config.IDEAL_PLANT_TEMP_MIN or
-              at > global_config.IDEAL_PLANT_TEMP_MAX):
-            self.set_status_light("air_temp", "yellow") # Outside optimal
-        else:
-            self.set_status_light("air_temp", "green") # In optimal range
-
-        # Water Temp Status (for pre-heating)
-        wt = state['payload_temps']['water']
-        if state['current_mode'] == "PRE_EXPERIMENT_HEATING":
-            if wt < global_config.MIN_WATER_TEMP:
-                self.set_status_light("water_temp", "yellow") # Heating...
-            else:
-                self.set_status_light("water_temp", "green") # Ready
-        else:
-             self.set_status_light("water_temp", "green") # Not a concern
-            
-    def set_status_light(self, name, color):
-        """Changes the color of a specific status light."""
-        canvas = self.status_lights.get(name)
-        if canvas:
-            canvas.itemconfig("status_light", fill=color, outline=color)
-
-    def on_closing(self):
-        """Called when the user clicks the 'X' button."""
-        print("[GUI] Closing application...")
-        
-        # Signal the simulation thread to stop
-        self.stop_event.set()
-        
-        # Wait for the thread to finish (optional, but good practice)
-        # self.sim_thread.join() 
-        
-        # Close the GUI
-        self.root.destroy()
+        self.terminal.insert("end", f"[{datetime.now().strftime('%H:%M:%S')}] RX PKT: T={data.get('temp_scd'):.1f} | MET={str(elapsed).split('.')[0]}\n")
+        self.terminal.see("end")
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = DashboardApp(root)
-    root.mainloop()
+    app = ProfessionalOBCDashboard()
+    app.mainloop()
