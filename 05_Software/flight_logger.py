@@ -1,3 +1,4 @@
+# flight_logger.py
 import os
 import csv
 from datetime import datetime
@@ -8,37 +9,37 @@ class FlightLogger:
         if not os.path.exists(self.folder):
             os.makedirs(self.folder)
         
-        # Create unique filename: log_2026-02-09_1430.csv
         timestamp = datetime.now().strftime('%Y-%m-%d_%H%M%S')
         self.filepath = os.path.join(self.folder, f"log_{timestamp}.csv")
         
-        # Initialize file with headers
-        self.headers = ["Timestamp", "CO2_ppm", "Air_Temp_C", "Humidity_PCT", "Pressure_hPa", "Lux", "Thermistor_V"]
+        # Expanded headers for full mission data
+        self.headers = [
+            "Timestamp", "CO2_ppm", "Air_Temp_C", "Humidity_PCT", 
+            "Pressure_hPa", "Lux", "Heater_State", "Pump_State", 
+            "Fan_State", "LED_State"
+        ]
+        
         with open(self.filepath, mode='w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(self.headers)
             
-        print(f"[LOGGER] Recording to: {self.filepath}")
+        print(f"[LOGGER] Initialized: {self.filepath}")
 
-    def log(self, sensor_data):
-        """
-        Accepts the dictionary from SensorBay and writes a row
-        """
+    def log(self, data):
         timestamp = datetime.now().strftime('%H:%M:%S')
         
         row = [
             timestamp,
-            sensor_data.get("co2", 0),
-            sensor_data.get("temp_scd", 0),
-            sensor_data.get("humidity", 0),
-            sensor_data.get("pressure", 0),
-            sensor_data.get("lux", 0),
-            sensor_data.get("thermistor_volts", 0)
+            data.get("co2", 0),
+            data.get("temp_scd", 0),
+            data.get("humidity", 0),
+            data.get("pressure", 0),
+            data.get("lux", 0),
+            data.get("Heater_State", "OFF"),
+            data.get("Pump_State", "OFF"),
+            data.get("Fan_State", "OFF"),
+            data.get("LED_State", "OFF")
         ]
         
-        try:
-            with open(self.filepath, mode='a', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow(row)
-        except Exception as e:
-            print(f"[LOGGER ERROR] Could not write to file: {e}")
+        with open(self.filepath, mode='a', newline='') as f:
+            csv.writer(f).writerow(row)
