@@ -8,151 +8,287 @@ import threading
 import random
 import time
 
-# --- THEME SETUP ---
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
+
+# ── Palette ──────────────────────────────────────────────────────────────────
+BG_DEEP    = "#0d0f14"
+BG_PANEL   = "#13161e"
+BG_CARD    = "#1a1d28"
+BORDER     = "#2a2d3e"
+ACCENT_CYN = "#00e5ff"
+ACCENT_GRN = "#00ff88"
+ACCENT_YLW = "#ffd600"
+ACCENT_BLU = "#448aff"
+ACCENT_PRP = "#b388ff"
+ACCENT_RED = "#ff5252"
+TEXT_HI    = "#e8eaf6"
+TEXT_MID   = "#9e9eb8"
+TEXT_DIM   = "#4a4a6a"
+
+FONT_MONO  = ("Consolas", 12)
 
 class ProfessionalOBCDashboard(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("PATHFINDER GROUND SEGMENT | OBC TERMINAL")
-        self.geometry("1280x800")
-        
-        # Mission Timing & Data Buffering
-        self.start_time = datetime.now()
-        self.temp_history = collections.deque([22.0]*50, maxlen=50)
-        self.time_steps = list(range(50))
+        self.title("PATHFINDER GROUND SEGMENT  ·  OBC TERMINAL")
+        self.geometry("1500x960")
+        self.configure(fg_color=BG_DEEP)
 
-        self.grid_columnconfigure(0, weight=0) 
-        self.grid_columnconfigure(1, weight=3) 
-        self.grid_rowconfigure(0, weight=1)
+        self.start_time   = datetime.now()
+        self.temp_history = collections.deque([22.0] * 60, maxlen=60)
+        self.time_steps   = list(range(60))
 
-        # --- SIDEBAR ---
-        self.sidebar = ctk.CTkFrame(self, width=200, corner_radius=0)
-        self.sidebar.grid(row=0, column=0, rowspan=4, sticky="nsew")
-        ctk.CTkLabel(self.sidebar, text="COMMAND", font=("Arial", 20, "bold")).pack(pady=20)
-        ctk.CTkButton(self.sidebar, text="EXPORT LOGS", fg_color="#2ecc71").pack(pady=10, padx=20)
-        
-        # --- HEADER / MISSION ELAPSED TIME ---
-        self.header = ctk.CTkFrame(self, height=50, fg_color="#1e1e1e")
-        self.header.grid(row=0, column=1, sticky="new", padx=20, pady=(20, 0))
-        
-        # Updated Label per your request
-        self.met_lbl = ctk.CTkLabel(self.header, text="Mission Elapsed Time (MET): 00:00:00", 
-                                    font=("Consolas", 18, "bold"), text_color="cyan")
-        self.met_lbl.pack(side="left", padx=20)
-        
-        # --- MAIN CONTAINER ---
-        self.main_container = ctk.CTkFrame(self, fg_color="transparent")
-        self.main_container.grid(row=0, column=1, padx=20, pady=(80, 20), sticky="nsew")
-        self.main_container.grid_columnconfigure((0, 1), weight=1)
-        self.main_container.grid_rowconfigure((0, 1), weight=1)
+        self._build_header()
+        self._build_body()
 
-        # PANEL 1: ENVIRONMENTAL DATA
-        self.env_panel = self.create_panel(self.main_container, "ENVIRONMENTAL DATA", 0, 0)
-        self.temp_lbl, self.temp_bar = self.create_parameter(self.env_panel, "AIR TEMP", "0.0°C", 40, "cyan")
-        self.co2_lbl, self.co2_bar = self.create_parameter(self.env_panel, "CO2 CONC", "0 ppm", 2000, "#2ecc71")
-        self.lux_lbl, self.lux_bar = self.create_parameter(self.env_panel, "LUMINOSITY", "0 lux", 1000, "#f1c40f")
-        self.pres_lbl, self.pres_bar = self.create_parameter(self.env_panel, "PRESSURE", "0 hPa", 1100, "#9b59b6")
+        threading.Thread(target=self._mission_simulator, daemon=True).start()
 
-        # PANEL 2: SUBSYSTEM HEALTH
-        self.pwr_panel = self.create_panel(self.main_container, "SUBSYSTEM HEALTH", 0, 1)
-        self.heater_led = self.create_status_light(self.pwr_panel, "THERMAL STRIPS", "#f1c40f")
-        self.pump_led = self.create_status_light(self.pwr_panel, "FLUID PUMP", "#3498db")
-        self.fan_led = self.create_status_light(self.pwr_panel, "COOLING FANS", "#1abc9c")
-        self.led_status = self.create_status_light(self.pwr_panel, "SYSTEM LEDs", "#ecf0f1")
+    # ── Header ────────────────────────────────────────────────────────────────
+    def _build_header(self):
+        hdr = ctk.CTkFrame(self, height=84, fg_color=BG_PANEL,
+                           border_width=1, border_color=BORDER, corner_radius=0)
+        hdr.pack(fill="x", side="top")
+        hdr.pack_propagate(False)
 
-        # PANEL 3: GRAPHING
-        self.graph_panel = self.create_panel(self.main_container, "MISSION TIMELINE (TEMP)", 1, 0)
-        self.fig = Figure(figsize=(5, 3), dpi=100, facecolor='#2b2b2b')
-        self.ax = self.fig.add_subplot(111)
-        self.ax.set_facecolor('#1e1e1e')
-        self.ax.tick_params(colors='white', labelsize=8)
-        self.ax.set_xlabel("Time (Seconds)", color='white', fontsize=9)
-        self.ax.set_ylabel("Temp (°C)", color='white', fontsize=9)
-        self.line, = self.ax.plot(self.time_steps, self.temp_history, color='cyan', linewidth=2)
-        self.canvas = FigureCanvasTkAgg(self.fig, master=self.graph_panel)
-        self.canvas.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)
+        # Left: mission identity
+        left = ctk.CTkFrame(hdr, fg_color="transparent")
+        left.pack(side="left", padx=24, fill="y")
+        ctk.CTkLabel(left, text="PATHFINDER  //  OBC TERMINAL",
+                     font=("Consolas", 22, "bold"), text_color=TEXT_HI).pack(anchor="w", pady=(14, 0))
+        ctk.CTkLabel(left, text="GROUND SEGMENT  ·  LIVE TELEMETRY",
+                     font=("Consolas", 16), text_color=TEXT_MID).pack(anchor="w")
 
-        # PANEL 4: TERMINAL
-        self.term_panel = self.create_panel(self.main_container, "UPLINK/DOWNLINK RAW", 1, 1)
-        self.terminal = tk.Text(self.term_panel, bg="#1e1e1e", fg="#00ff00", font=("Consolas", 10), borderwidth=0)
-        self.terminal.pack(fill="both", expand=True, padx=10, pady=10)
+        # Centre: MET
+        self.met_lbl = ctk.CTkLabel(hdr, text="MET  00:00:00",
+                                    font=("Consolas", 42, "bold"), text_color=ACCENT_CYN)
+        self.met_lbl.pack(side="left", expand=True)
 
-        threading.Thread(target=self.mission_simulator, daemon=True).start()
+        # Right: status dot + export
+        right = ctk.CTkFrame(hdr, fg_color="transparent")
+        right.pack(side="right", padx=24, fill="y")
+        ctk.CTkButton(right, text="⬇  EXPORT LOGS",
+                      fg_color=ACCENT_GRN, text_color="#000",
+                      font=("Consolas", 14, "bold"),
+                      height=42, width=180, corner_radius=4).pack(pady=15)
 
-    def create_panel(self, master, title, row, col):
-        frame = ctk.CTkFrame(master, border_width=1, border_color="#444")
-        frame.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
-        ctk.CTkLabel(frame, text=title, font=("Arial", 12, "bold"), text_color="gray").pack(pady=5)
+    # ── Body ──────────────────────────────────────────────────────────────────
+    def _build_body(self):
+        body = ctk.CTkFrame(self, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=16, pady=12)
+
+        # 3 columns: env (wide) | health (medium) | terminal (medium)
+        body.grid_columnconfigure(0, weight=5)
+        body.grid_columnconfigure(1, weight=3)
+        body.grid_columnconfigure(2, weight=6)
+        body.grid_rowconfigure(0, weight=5)   # top row — main content, gets most space
+        body.grid_rowconfigure(1, weight=2)   # bottom row — compact graph strip
+
+        self._build_env_panel(body)
+        self._build_health_panel(body)
+        self._build_terminal_panel(body)
+        self._build_graph_panel(body)
+
+    # ── Environmental Data ────────────────────────────────────────────────────
+    def _build_env_panel(self, parent):
+        panel = self._panel(parent, "ENVIRONMENTAL DATA", 0, 0)
+
+        params = [
+            ("AIR TEMP",   "──°C",   ACCENT_CYN, 40,   "temp"),
+            ("CO₂ CONC",   "── ppm", ACCENT_GRN, 2000, "co2"),
+            ("HUMIDITY",   "──%",    ACCENT_BLU, 100,  "hum"),
+            ("LUMINOSITY", "── lux", ACCENT_YLW, 1000, "lux"),
+            ("PRESSURE",   "── hPa", ACCENT_PRP, 1100, "pres"),
+        ]
+
+        self._env_widgets = {}
+        for name, init, color, maxv, key in params:
+            row = ctk.CTkFrame(panel, fg_color="transparent")
+            row.pack(fill="x", padx=20, pady=(10, 0))
+
+            # Channel label
+            ctk.CTkLabel(row, text=name, font=("Consolas", 18, "bold"),
+                         text_color=TEXT_MID, width=160, anchor="w").pack(side="left")
+
+            # Value — large
+            val_lbl = ctk.CTkLabel(row, text=init,
+                                   font=("Consolas", 46, "bold"), text_color=color)
+            val_lbl.pack(side="right")
+
+            # Bar
+            bar = ctk.CTkProgressBar(panel, height=12, progress_color=color,
+                                     fg_color=BG_CARD, corner_radius=4)
+            bar.pack(fill="x", padx=20, pady=(4, 8))
+            bar.set(0)
+
+            self._env_widgets[key] = (val_lbl, bar, maxv)
+
+    # ── Subsystem Health ──────────────────────────────────────────────────────
+    def _build_health_panel(self, parent):
+        panel = self._panel(parent, "SUBSYSTEM HEALTH", 0, 1)
+
+        subsystems = [
+            ("THERMAL STRIPS", ACCENT_YLW, "heater"),
+            ("FLUID PUMP",     ACCENT_BLU,  "pump"),
+            ("COOLING FANS",   ACCENT_GRN,  "fan"),
+            ("SYSTEM LEDs",    TEXT_HI,     "led"),
+        ]
+
+        self._health_widgets = {}
+        for name, color, key in subsystems:
+            card = ctk.CTkFrame(panel, fg_color=BG_CARD,
+                                border_width=1, border_color=BORDER, corner_radius=8)
+            card.pack(fill="x", padx=16, pady=8)
+
+            inner = ctk.CTkFrame(card, fg_color="transparent")
+            inner.pack(fill="x", padx=16, pady=14)
+
+            dot = ctk.CTkLabel(inner, text="●", font=("Arial", 46), text_color=TEXT_DIM)
+            dot.pack(side="left")
+
+            txt_col = ctk.CTkFrame(inner, fg_color="transparent")
+            txt_col.pack(side="left", padx=14)
+            ctk.CTkLabel(txt_col, text=name,
+                         font=("Consolas", 20, "bold"), text_color=TEXT_HI).pack(anchor="w")
+            state_lbl = ctk.CTkLabel(txt_col, text="○  STANDBY",
+                                     font=("Consolas", 15), text_color=TEXT_DIM)
+            state_lbl.pack(anchor="w")
+
+            self._health_widgets[key] = {"dot": dot, "state_lbl": state_lbl, "color": color}
+
+    # ── Terminal ──────────────────────────────────────────────────────────────
+    def _build_terminal_panel(self, parent):
+        panel = self._panel(parent, "UPLINK / DOWNLINK  —  RAW STREAM", 0, 2)
+
+        # header strip
+        hdr = ctk.CTkFrame(panel, fg_color=BG_CARD, height=36, corner_radius=0)
+        hdr.pack(fill="x", padx=16, pady=(0, 6))
+        hdr.pack_propagate(False)
+        ctk.CTkLabel(hdr, text="  ● RX ACTIVE   ○ TX STANDBY",
+                     font=("Consolas", 14, "bold"), text_color=ACCENT_GRN).pack(side="left", padx=8, fill="y")
+
+        self.terminal = tk.Text(panel,
+                                bg=BG_CARD, fg=ACCENT_GRN,
+                                font=("Consolas", 17, "bold"),
+                                insertbackground=ACCENT_GRN,
+                                selectbackground="#2a2d3e",
+                                borderwidth=0, highlightthickness=0,
+                                relief="flat", spacing1=4, spacing3=4)
+        self.terminal.pack(fill="both", expand=True, padx=16, pady=(0, 12))
+
+    # ── Graph ─────────────────────────────────────────────────────────────────
+    def _build_graph_panel(self, parent):
+        panel = self._panel(parent, "MISSION TIMELINE  —  AIR TEMPERATURE (°C)", 1, 0,
+                            colspan=3)
+
+        self.fig = Figure(figsize=(6, 3), dpi=100, facecolor=BG_PANEL)
+        self.ax  = self.fig.add_subplot(111, facecolor=BG_CARD)
+        self.fig.subplots_adjust(left=0.05, right=0.98, top=0.92, bottom=0.14)
+
+        for spine in self.ax.spines.values():
+            spine.set_color(BORDER)
+        self.ax.tick_params(colors=TEXT_MID, labelsize=11)
+        self.ax.set_xlabel("Time (seconds)", color=TEXT_MID, fontsize=12)
+        self.ax.set_ylabel("Temp (°C)", color=TEXT_MID, fontsize=12)
+        self.ax.yaxis.label.set_fontfamily("Consolas")
+        self.ax.xaxis.label.set_fontfamily("Consolas")
+        self.ax.grid(color=BORDER, linewidth=0.6, alpha=0.7)
+
+        self.line, = self.ax.plot(self.time_steps, self.temp_history,
+                                  color=ACCENT_CYN, linewidth=2.5, solid_capstyle="round")
+        self.fill  = self.ax.fill_between(self.time_steps, list(self.temp_history),
+                                          alpha=0.12, color=ACCENT_CYN)
+
+        self.canvas = FigureCanvasTkAgg(self.fig, master=panel)
+        self.canvas.get_tk_widget().configure(bg=BG_PANEL, highlightthickness=0)
+        self.canvas.get_tk_widget().pack(fill="both", expand=True, padx=16, pady=(0, 12))
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
+    def _panel(self, parent, title, row, col, colspan=1):
+        frame = ctk.CTkFrame(parent, fg_color=BG_PANEL,
+                             border_width=1, border_color=BORDER, corner_radius=10)
+        frame.grid(row=row, column=col, columnspan=colspan,
+                   padx=6, pady=6, sticky="nsew")
+
+        title_row = ctk.CTkFrame(frame, fg_color=BG_CARD, height=52,
+                                 corner_radius=0)
+        title_row.pack(fill="x")
+        title_row.pack_propagate(False)
+        ctk.CTkLabel(title_row, text=f"  {title}",
+                     font=("Consolas", 18, "bold"), text_color=TEXT_HI,
+                     anchor="w").pack(side="left", padx=12, fill="y")
         return frame
 
-    def create_parameter(self, master, name, val_text, max_val, color):
-        container = ctk.CTkFrame(master, fg_color="transparent")
-        container.pack(fill="x", padx=15, pady=2)
-        ctk.CTkLabel(container, text=name, font=("Arial", 10)).pack(side="left")
-        val_lbl = ctk.CTkLabel(container, text=val_text, font=("Arial", 12, "bold"), text_color=color)
-        val_lbl.pack(side="right")
-        bar = ctk.CTkProgressBar(master, height=6, progress_color=color)
-        bar.pack(fill="x", padx=15, pady=(0, 8))
-        bar.set(0.0)
-        return val_lbl, (bar, max_val)
-
-    def create_status_light(self, master, name, on_color):
-        container = ctk.CTkFrame(master, fg_color="transparent")
-        container.pack(fill="x", padx=15, pady=4)
-        light = ctk.CTkLabel(container, text="●", font=("Arial", 24), text_color="#333")
-        light.pack(side="left")
-        ctk.CTkLabel(container, text=name, font=("Arial", 11)).pack(side="left", padx=10)
-        return {"light": light, "on_color": on_color}
-
-    def mission_simulator(self):
-        c_temp, c_co2, c_lux, c_pres = 22.0, 450, 800, 1013.25
+    # ── Simulator ─────────────────────────────────────────────────────────────
+    def _mission_simulator(self):
+        c_temp = 22.0
+        c_co2  = 450
+        c_hum  = 55.0
+        c_lux  = 800
+        c_pres = 1013.25
         while True:
             c_temp += random.uniform(-0.3, 0.3)
-            c_co2 += random.randint(-2, 5)
-            c_lux += random.randint(-10, 10)
+            c_co2  += random.randint(-2, 5)
+            c_hum   = max(0, min(100, c_hum + random.uniform(-0.5, 0.5)))
+            c_lux  += random.randint(-10, 10)
             c_pres += random.uniform(-0.1, 0.1)
-            
-            sim_data = {
-                "temp_scd": c_temp, "co2": c_co2, "lux": c_lux, "pressure": c_pres,
-                "Heater_State": "ON" if c_temp < 20.0 else "OFF",
-                "Pump_State": "ON" if (int(time.time()) % 15 < 3) else "OFF",
-                "Fan_State": "ON" if c_temp > 24.0 else "OFF",
-                "LED_State": "ON" if c_lux < 500 else "OFF"
+
+            data = {
+                "temp": c_temp, "co2": c_co2, "hum": c_hum,
+                "lux": c_lux, "pres": c_pres,
+                "heater": "ON"  if c_temp < 20.0 else "OFF",
+                "pump":   "ON"  if (int(time.time()) % 15 < 3) else "OFF",
+                "fan":    "ON"  if c_temp > 24.0 else "OFF",
+                "led":    "ON"  if c_lux < 500 else "OFF",
             }
-            self.after(0, self.update_display, sim_data)
+            self.after(0, self._update, data)
             time.sleep(1)
 
-    def update_display(self, data):
+    # ── Update ────────────────────────────────────────────────────────────────
+    def _update(self, d):
         elapsed = datetime.now() - self.start_time
-        self.met_lbl.configure(text=f"Mission Elapsed Time (MET): {str(elapsed).split('.')[0]}")
-        
-        updates = [
-            (self.temp_lbl, self.temp_bar, data.get('temp_scd', 0), "°C"),
-            (self.co2_lbl, self.co2_bar, data.get('co2', 0), " ppm"),
-            (self.lux_lbl, self.lux_bar, data.get('lux', 0), " lux"),
-            (self.pres_lbl, self.pres_bar, data.get('pressure', 0), " hPa")
-        ]
-        for lbl, (bar, m), val, unit in updates:
-            lbl.configure(text=f"{val:.1f}{unit}" if isinstance(val, float) else f"{val}{unit}")
-            bar.set(min(max(val / m, 0), 1.0))
+        met_str = str(elapsed).split(".")[0]
+        self.met_lbl.configure(text=f"MET  {met_str}")
 
-        leds = [
-            (self.heater_led, data.get("Heater_State")),
-            (self.pump_led, data.get("Pump_State")),
-            (self.fan_led, data.get("Fan_State")),
-            (self.led_status, data.get("LED_State"))
-        ]
-        for led_obj, state in leds:
-            led_obj["light"].configure(text_color=led_obj["on_color"] if state == "ON" else "#333")
-        
-        self.temp_history.append(data.get('temp_scd', 0))
-        self.line.set_ydata(self.temp_history)
-        self.ax.relim(); self.ax.autoscale_view(); self.canvas.draw()
-        
-        self.terminal.insert("end", f"[{datetime.now().strftime('%H:%M:%S')}] RX PKT: T={data.get('temp_scd'):.1f} | MET={str(elapsed).split('.')[0]}\n")
+        # Environmental
+        fmt = {
+            "temp": (d["temp"],  "°C",   lambda v: f"{v:+.1f}°C"),
+            "co2":  (d["co2"],   " ppm",  lambda v: f"{v:.0f} ppm"),
+            "hum":  (d["hum"],   "%",     lambda v: f"{v:.1f}%"),
+            "lux":  (d["lux"],   " lux",  lambda v: f"{v:.0f} lux"),
+            "pres": (d["pres"],  " hPa",  lambda v: f"{v:.1f} hPa"),
+        }
+        for key, (val, _, formatter) in fmt.items():
+            lbl, bar, maxv = self._env_widgets[key]
+            lbl.configure(text=formatter(val))
+            bar.set(min(max(val / maxv, 0), 1.0))
+
+        # Health
+        for key, hw in self._health_widgets.items():
+            on = d[key] == "ON"
+            hw["dot"].configure(text_color=hw["color"] if on else TEXT_DIM)
+            hw["state_lbl"].configure(
+                text="● ACTIVE" if on else "○ STANDBY",
+                text_color=hw["color"] if on else TEXT_DIM)
+
+        # Graph
+        self.temp_history.append(d["temp"])
+        y = list(self.temp_history)
+        self.line.set_ydata(y)
+        # Redraw fill
+        self.fill.remove()
+        self.fill = self.ax.fill_between(self.time_steps, y, alpha=0.12, color=ACCENT_CYN)
+        self.ax.relim()
+        self.ax.autoscale_view()
+        self.canvas.draw_idle()
+
+        # Terminal — two lines per packet for readability at large font
+        ts = datetime.now().strftime("%H:%M:%S")
+        self.terminal.insert("end",
+            f"[{ts}]  RX  ·  MET {met_str}\n"
+            f"  T={d['temp']:+.1f}°C  H={d['hum']:.1f}%  CO2={d['co2']:.0f}ppm  P={d['pres']:.1f}hPa\n\n")
         self.terminal.see("end")
+
 
 if __name__ == "__main__":
     app = ProfessionalOBCDashboard()
