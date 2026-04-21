@@ -1,5 +1,7 @@
-#This code is updated to reflect values in SVMD, focusing on a 24-hr cycle, including logic for LUX conversion to DLI, and after the target DLI is achieved of 12, LEDs shut off.
-
+#This code is updated to reflect values in SVMD, focusing on a 24-hr cycle.
+#Including logic for LUX conversion to DLI, and after the target DLI is achieved of 12, LEDs shut off.
+#Heaters are now able to reach 100%.
+#Correction factor will be required for LUX sensor due to placement.
 # PID constants have yet to be tweaked.
 
 import time
