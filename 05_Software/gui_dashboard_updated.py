@@ -184,6 +184,8 @@ class ProfessionalOBCDashboard(ctk.CTk):
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         threading.Thread(target=self._sim_loop, daemon=True).start()
         self._gui_tick()
+        # Auto-start mission 2 seconds after launch so GUI fully renders first
+        self.after(2000, self._start_mission)
 
     # ══════════════════════════════════════════════════════════════════════════
     # HEADER
@@ -219,8 +221,8 @@ class ProfessionalOBCDashboard(ctk.CTk):
         body = ctk.CTkFrame(self, fg_color="transparent")
         body.pack(fill="both", expand=True, padx=16, pady=12)
         body.grid_columnconfigure(0, weight=5)
-        body.grid_columnconfigure(1, weight=4)
-        body.grid_columnconfigure(2, weight=5)
+        body.grid_columnconfigure(1, weight=5)
+        body.grid_columnconfigure(2, weight=4)
         body.grid_rowconfigure(0, weight=5)
         body.grid_rowconfigure(1, weight=2)
         body.grid_rowconfigure(2, weight=3)
@@ -264,18 +266,18 @@ class ProfessionalOBCDashboard(ctk.CTk):
         self._manual_widgets = {}
 
         subsystems = [
-            ("SYSTEM LEDs",    "led",    ACCENT_YLW, True,  pwm_led),
-            ("COOLING FANS",   "fan",    ACCENT_BLU,  True,  pwm_fan),
-            ("THERMAL STRIPS", "heater", ACCENT_ORG, False, None),
-            ("FLUID PUMP",     "pump",   ACCENT_GRN,  False, None),
+            ("SYSTEM LEDs",    "led",    ACCENT_YLW, pwm_led),
+            ("COOLING FANS",   "fan",    ACCENT_BLU,  pwm_fan),
+            ("THERMAL STRIPS", "heater", ACCENT_ORG, None),
+            ("FLUID PUMP",     "pump",   ACCENT_GRN,  None),
         ]
 
-        for label, key, color, has_slider, _ in subsystems:
+        for label, key, color, _ in subsystems:
             card = ctk.CTkFrame(panel, fg_color=BG_CARD,
                                 border_width=1, border_color=BORDER, corner_radius=8)
             card.pack(fill="x", padx=14, pady=6)
 
-            # ── Top row: dot + name + toggle ──────────────────────────────────
+            # ── Top row: dot + name + override toggle ─────────────────────────
             top = ctk.CTkFrame(card, fg_color="transparent")
             top.pack(fill="x", padx=12, pady=(10,2))
 
@@ -285,7 +287,6 @@ class ProfessionalOBCDashboard(ctk.CTk):
             ctk.CTkLabel(top, text=label, font=("Consolas", 16, "bold"),
                          text_color=TEXT_HI).pack(side="left", padx=8)
 
-            # Override / Release button on the right
             ovr_btn = ctk.CTkButton(
                 top, text="OVERRIDE",
                 fg_color=BG_DEEP, border_width=1, border_color=color,
@@ -301,15 +302,14 @@ class ProfessionalOBCDashboard(ctk.CTk):
                                       anchor="w")
             status_lbl.pack(fill="x", padx=14, pady=(0,4))
 
-            # ── ON / OFF buttons (only visible when overriding) ───────────────
+            # ── ON / OFF buttons — always enabled ────────────────────────────
             btn_row = ctk.CTkFrame(card, fg_color="transparent")
-            btn_row.pack(fill="x", padx=12, pady=(0,4))
+            btn_row.pack(fill="x", padx=12, pady=(0,10))
 
             btn_on = ctk.CTkButton(
                 btn_row, text="ON",
                 fg_color=color, text_color="#000",
-                font=("Consolas", 13, "bold"), height=34, corner_radius=4,
-                state="disabled",
+                font=("Consolas", 14, "bold"), height=38, corner_radius=4,
                 command=lambda k=key: self._manual_on(k))
             btn_on.pack(side="left", fill="x", expand=True, padx=(0,4))
 
@@ -317,36 +317,14 @@ class ProfessionalOBCDashboard(ctk.CTk):
                 btn_row, text="OFF",
                 fg_color=BG_DEEP, border_width=1, border_color=ACCENT_RED,
                 text_color=ACCENT_RED, hover_color=BG_PANEL,
-                font=("Consolas", 13, "bold"), height=34, corner_radius=4,
-                state="disabled",
+                font=("Consolas", 14, "bold"), height=38, corner_radius=4,
                 command=lambda k=key: self._manual_off(k))
             btn_off.pack(side="left", fill="x", expand=True, padx=(4,0))
-
-            # ── Slider (LEDs and fans only) ───────────────────────────────────
-            slider = None
-            slider_lbl = None
-            if has_slider:
-                slider_row = ctk.CTkFrame(card, fg_color="transparent")
-                slider_row.pack(fill="x", padx=12, pady=(2,8))
-                slider_lbl = ctk.CTkLabel(slider_row, text="100%",
-                                          font=("Consolas", 13, "bold"),
-                                          text_color=color, width=46)
-                slider_lbl.pack(side="right")
-                slider = ctk.CTkSlider(slider_row, from_=0, to=100,
-                                       progress_color=color,
-                                       button_color=color,
-                                       state="disabled",
-                                       command=lambda v, k=key: self._slider_moved(k, v))
-                slider.set(100)
-                slider.pack(side="left", fill="x", expand=True, padx=(0,8))
-            else:
-                # spacer so cards are consistent height
-                ctk.CTkFrame(card, fg_color="transparent", height=8).pack()
 
             self._manual_widgets[key] = {
                 "dot": dot, "status_lbl": status_lbl,
                 "ovr_btn": ovr_btn, "btn_on": btn_on, "btn_off": btn_off,
-                "slider": slider, "slider_lbl": slider_lbl, "color": color,
+                "slider": None, "slider_lbl": None, "color": color,
             }
 
     # ── Terminal ──────────────────────────────────────────────────────────────
@@ -358,14 +336,25 @@ class ProfessionalOBCDashboard(ctk.CTk):
         ctk.CTkLabel(hdr, text="  ● RX ACTIVE   ○ TX STANDBY",
                      font=("Consolas", 14, "bold"), text_color=ACCENT_GRN).pack(side="left", padx=8, fill="y")
         self.terminal = tk.Text(panel, bg=BG_CARD, fg=ACCENT_GRN,
-                                font=("Consolas", 17, "bold"),
+                                font=("Consolas", 14, "bold"),
                                 insertbackground=ACCENT_GRN,
                                 selectbackground="#2a2d3e",
                                 borderwidth=0, highlightthickness=0,
-                                relief="flat", spacing1=4, spacing3=4)
+                                relief="flat", spacing1=3, spacing3=3)
         self.terminal.pack(fill="both", expand=True, padx=16, pady=(0,12))
         # Tag for warning colour
         self.terminal.tag_config("warn", foreground=ACCENT_YLW)
+        # Seed with waiting message
+        self.terminal.insert("end",
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "  PATHFINDER OBC TERMINAL  —  GROUND SEGMENT\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "  ○  AWAITING MISSION START\n\n"
+            "  Press  ▶ START MISSION  to begin the\n"
+            "  autonomous control loop and live data feed.\n\n"
+            "  Manual subsystem controls are available\n"
+            "  at any time via the MANUAL CONTROL panel.\n\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
 
     # ── Graph ─────────────────────────────────────────────────────────────────
     def _build_graph_panel(self, parent):
@@ -511,23 +500,16 @@ class ProfessionalOBCDashboard(ctk.CTk):
             ovr["active"] = False
             w["ovr_btn"].configure(text="OVERRIDE", text_color=w["color"],
                                    border_color=w["color"], fg_color=BG_DEEP)
-            w["btn_on"].configure(state="disabled")
-            w["btn_off"].configure(state="disabled")
             w["status_lbl"].configure(text="○  AUTO", text_color=TEXT_DIM)
             w["dot"].configure(text_color=TEXT_DIM)
-            if w["slider"]: w["slider"].configure(state="disabled")
             self._log(f"OVERRIDE RELEASED — {key.upper()} returned to AUTO")
         else:
             # Engage override
             ovr["active"] = True
             w["ovr_btn"].configure(text="RELEASE", text_color="#000",
                                    border_color=w["color"], fg_color=w["color"])
-            w["btn_on"].configure(state="normal")
-            w["btn_off"].configure(state="normal")
             w["status_lbl"].configure(text="⚠  MANUAL OVERRIDE", text_color=ACCENT_YLW)
             w["dot"].configure(text_color=ACCENT_YLW)
-            if w["slider"]: w["slider"].configure(state="normal")
-
             if self._mission_running:
                 self._log(f"MANUAL OVERRIDE — {key.upper()} taken from AUTO control", warn=True)
             else:
@@ -536,26 +518,23 @@ class ProfessionalOBCDashboard(ctk.CTk):
     def _manual_on(self, key: str):
         ovr = self._overrides[key]
         w   = self._manual_widgets[key]
-        pct = ovr["value"]
         ovr["active"] = True
 
         if key == "led":
-            pwm_led.ChangeDutyCycle(pct)
+            pwm_led.ChangeDutyCycle(100)
         elif key == "fan":
-            pwm_fan.ChangeDutyCycle(pct)
+            pwm_fan.ChangeDutyCycle(100)
         elif key == "heater":
-            pwm_grow.ChangeDutyCycle(min(pct, MAX_HEATER_POWER))
-            pwm_water.ChangeDutyCycle(min(pct, MAX_HEATER_POWER))
+            pwm_grow.ChangeDutyCycle(MAX_HEATER_POWER)
+            pwm_water.ChangeDutyCycle(MAX_HEATER_POWER)
         elif key == "pump":
             gpio_out(PUMP_DIR, True)
             gpio_out(PUMP_EN,  True)
             pwm_pump.start(50)
 
         w["dot"].configure(text_color=w["color"])
-        w["status_lbl"].configure(
-            text=f"⚠  MANUAL ON  {pct:.0f}%" if key not in ("pump",) else "⚠  MANUAL ON",
-            text_color=ACCENT_YLW)
-        self._log(f"MANUAL ON — {key.upper()} @ {pct:.0f}%", warn=self._mission_running)
+        w["status_lbl"].configure(text="⚠  MANUAL ON", text_color=ACCENT_YLW)
+        self._log(f"MANUAL ON — {key.upper()}", warn=self._mission_running)
 
     def _manual_off(self, key: str):
         w = self._manual_widgets[key]
@@ -572,16 +551,6 @@ class ProfessionalOBCDashboard(ctk.CTk):
         w["dot"].configure(text_color=TEXT_DIM)
         w["status_lbl"].configure(text="⚠  MANUAL OFF", text_color=ACCENT_YLW)
         self._log(f"MANUAL OFF — {key.upper()}", warn=self._mission_running)
-
-    def _slider_moved(self, key: str, value: float):
-        self._overrides[key]["value"] = value
-        w = self._manual_widgets[key]
-        if w["slider_lbl"]:
-            w["slider_lbl"].configure(text=f"{value:.0f}%")
-        # Apply immediately if currently overriding and on
-        if self._overrides[key]["active"]:
-            if key == "led":   pwm_led.ChangeDutyCycle(value)
-            elif key == "fan": pwm_fan.ChangeDutyCycle(value)
 
     # ══════════════════════════════════════════════════════════════════════════
     # SIMULATION LOOP
