@@ -521,12 +521,16 @@ class ProfessionalOBCDashboard(ctk.CTk):
         ovr["active"] = True
 
         if key == "led":
-            pwm_led.ChangeDutyCycle(100)
+            pwm_led.stop()
+            pwm_led.start(100)
         elif key == "fan":
-            pwm_fan.ChangeDutyCycle(100)
+            pwm_fan.stop()
+            pwm_fan.start(100)
         elif key == "heater":
-            pwm_grow.ChangeDutyCycle(MAX_HEATER_POWER)
-            pwm_water.ChangeDutyCycle(MAX_HEATER_POWER)
+            pwm_grow.stop()
+            pwm_water.stop()
+            pwm_grow.start(MAX_HEATER_POWER)
+            pwm_water.start(MAX_HEATER_POWER)
         elif key == "pump":
             gpio_out(PUMP_DIR, True)
             gpio_out(PUMP_EN,  True)
@@ -539,11 +543,17 @@ class ProfessionalOBCDashboard(ctk.CTk):
     def _manual_off(self, key: str):
         w = self._manual_widgets[key]
 
-        if key == "led":    pwm_led.ChangeDutyCycle(0)
-        elif key == "fan":  pwm_fan.ChangeDutyCycle(0)
+        if key == "led":
+            pwm_led.stop()
+            pwm_led.start(0)
+        elif key == "fan":
+            pwm_fan.stop()
+            pwm_fan.start(0)
         elif key == "heater":
-            pwm_grow.ChangeDutyCycle(0)
-            pwm_water.ChangeDutyCycle(0)
+            pwm_grow.stop()
+            pwm_water.stop()
+            pwm_grow.start(0)
+            pwm_water.start(0)
         elif key == "pump":
             pwm_pump.stop()
             gpio_out(PUMP_EN, False)
